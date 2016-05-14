@@ -1,0 +1,4 @@
+cd_images/*
+OVMF/*
+VM/*
+.idea
