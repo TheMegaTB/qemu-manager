@@ -1,22 +1,54 @@
 #!/usr/bin/env bash
 
 # TODO: Argument parsing and quiet flag for qemu
-
+echo $EUID
 if [ "$EUID" -ne 0 ]; then
-    echo -e " \e[91m*\e[39m Please run as root"
+    gksudo --preserve-env --message "QEMU Manager wants to start a VM and requires root permission to do so." "$0 $@"
+    if [ $? -ne 0 ]; then
+        echo -e " \e[91m*\e[39m Please run as root"
+    fi
     exit
 fi
+
+function help() {
+    echo -e "$(basename "$0") [-h] [-s] [-q(q)] VM -- manager for various tasks regarding QEMU based virtual machines.\n
+\n
+where:\n
+    --help       [-h]   show this help text\n
+    --spicey     [-s]   launches the spicey client automagically\n
+    --quiet      [-q]   mutes the QEMU output including errors\n
+    --very-quiet [-qq]  mutes everything"
+}
+
+while [[ $# > 1 ]]; do
+    key="$1"
+    case ${key} in
+        -q|--quiet)
+            QUIET=1
+            #shift # past argument
+            ;;
+        -qq|--very-quiet)
+            QUIET=2
+            #shift # past argument
+            ;;
+        -s|--spicey)
+            SPICE=1
+            #shift # past argument
+            ;;
+        -h|--help|-help)
+            help
+            exit 0
+            ;;
+        *)
+            # unknown option
+            ;;
+    esac
+    shift # past argument or value
+done
 
 if [ -z "$1" ]; then
     echo -e " \e[91m*\e[39m Please provide a VM name"
     exit
-else
-    VM=$1
-fi
-
-SPICE=0
-if [ ! -z "$2" ] && [ "$2" == "--spice" ] || [ "$2" == "-s" ]; then
-    SPICE=1
 fi
 
 cols=$(tput cols)
@@ -29,20 +61,28 @@ function move_before_end_of_line {
 }
 
 function begin {
-    echo -e " \e[92m*\e[39m $1 ..."
+    if [ ! -z ${QUIET} ] && [ ${QUIET} -ne 2 ] || [ -z ${QUIET} ]; then
+        echo -e " \e[92m*\e[39m $1 ..."
+    fi
 }
 
 function end {
-    move_before_end_of_line 8
-    if [ $1 -eq 0 ]; then
-        echo -e " \e[1;96m[\e[92m ok \e[96m]\e[39m\e[21m "
-    else
-        echo -e " \e[1m\e[96m[\e[91m !! \e[96m]\e[39m\e[21m"
+    if [ ! -z ${QUIET} ] && [ ${QUIET} -ne 2 ] || [ -z ${QUIET} ]; then
+        move_before_end_of_line 8
+        if [ $1 -eq 0 ]; then
+            echo -e " \e[1;96m[\e[92m ok \e[96m]\e[39m\e[21m "
+        else
+            echo -e " \e[1m\e[96m[\e[91m !! \e[96m]\e[39m\e[21m"
+        fi
     fi
 }
 
 function try {
-    "$@"
+    if [ -z ${QUIET} ]; then
+        "$@"
+    else
+        "$@" >/dev/null 2>&1
+    fi
     local status=$?
     if [ ${status} -ne 0 ]; then
         # echo "error with $1" >&2
@@ -69,21 +109,20 @@ try sysctl -w net.ipv4.ip_forward=1 > /dev/null
 try iptables -t nat -A POSTROUTING -s 10.0.2.0/24 -j MASQUERADE
 end $?
 
-if [ ${SPICE} -eq 1 ]; then
+if [ ! -z ${SPICE} ]; then
     begin "Launching spice"
     try sh -c "(sleep 0.5 && i3-msg 'workspace '8: '; exec spicy -f -h 127.0.0.1 -p 5930')" > /dev/null &
     end $?
 fi
 
 begin "Starting VM"
-cmd=$(./qemu_manager.py ${VM})
+cmd=$(./qemu_manager.py $1)
 
-#echo ${cmd}
 echo -e "\e[90m"
 try ${cmd}
 end $?
 
 begin "Removing IP forwarding device"
-ip link delete tap0
+#ip link delete tap0
 kill ${TAP_PID}
 end $?
