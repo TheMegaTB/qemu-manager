@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-# TODO: Argument parsing and quiet flag for qemu
-echo $EUID
 if [ "$EUID" -ne 0 ]; then
     if [ -z "$DISPLAY" ]; then
         gksudo --preserve-env --message "QEMU Manager wants to start a VM and requires root permission to do so." "$0 $@"
@@ -54,6 +52,7 @@ if [ -z "$1" ]; then
 fi
 
 cols=$(tput cols)
+hugepagesize=$(sed -n 's/Hugepagesize://p' /proc/meminfo | awk '{print $1}')
 
 function move_before_end_of_line {
     tput el
@@ -118,10 +117,10 @@ if [ ! -z ${SPICE} ]; then
 fi
 
 begin "Starting VM"
-cmd=$(./qemu_manager.py $1)
+try ./qemu_manager.py ${hugepagesize} $1
 
 echo -e "\e[90m"
-try ${cmd}
+try /tmp/qemu_cmdline.sh
 end $?
 
 begin "Removing IP forwarding device"

@@ -1,13 +1,17 @@
 #!/usr/bin/python3.5
 from __future__ import print_function
 from pprint import pprint
-from os import path
+from subprocess import check_output
+from os import path, chmod
+import math
 import sys
 import json
 import psutil
 
 
 OVMF_CODE_PATH = path.abspath("./OVMF/OVMF_CODE-pure-efi.fd")
+HUGEPAGESIZE = 2048
+
 
 def called_by_qmsh():
     me = psutil.Process()
@@ -34,7 +38,7 @@ def parse_vm(name):
 
 
 def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
-             mem=4086, cores=4, cpu="host", cpu_args=None,
+             mem=2048, cores=4, cpu="host", cpu_args=None,
              vga=None, sound=None,
              hdd=None, ide=None, scsi=None):
 
@@ -48,7 +52,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
     if scsi is None:
         scsi = []
 
-    additional_options = "-nodefaults -nodefconfig -net nic,model=virtio -net vde"
+    additional_options = "-serial none -parallel none -no-user-config -nodefaults -nodefconfig -net nic,model=virtio -net vde"
     cmdline = "qemu-system-x86_64 "
     drive_id = 0
 
@@ -59,6 +63,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
 
     # Set the RAM allocation
     cmdline += "-m " + str(mem) + " "
+    cmdline += "-mem-path /dev/hugepages -mem-prealloc "
 
     # Set the CPU options
     cmdline += "-cpu " + (cpu + "," + cpu_args if cpu_args else cpu) + " "
@@ -115,8 +120,13 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
         drive_id += 1
 
     # TODO: Set up VFIO binding
-    # print("echo 1 > /sys/module/kvm/parameters/ignore_msrs")
-    print(cmdline + additional_options)
+    f = open('/tmp/qemu_cmdline.sh', 'w')
+    print("#!/bin/bash", file=f)
+    print("echo 1 > /sys/module/kvm/parameters/ignore_msrs", file=f)
+    print("echo " + str(math.ceil(mem / HUGEPAGESIZE / 50) * 50) + " > /proc/sys/vm/nr_hugepages", file=f)
+    print(cmdline + additional_options, file=f)
+    f.close()
+    chmod('/tmp/qemu_cmdline.sh', 0o544)
 
 # -rtc base=localtime \
 # -net user,smb=/home/themegatb/ \
@@ -127,7 +137,9 @@ def main():
     if not called_by_qmsh():
         eprint("This script shouldn't be called directly.")
         exit(1)
-    vm_config = parse_vm(sys.argv[1])
+    global HUGEPAGESIZE
+    HUGEPAGESIZE = int(sys.argv[1]) / 1024  # Convert kB -> MB
+    vm_config = parse_vm(sys.argv[2])
     vm_config.pop("name", None)  # eprint("Loaded " + vm_config.pop("name"))
     start_vm(**vm_config)
 
