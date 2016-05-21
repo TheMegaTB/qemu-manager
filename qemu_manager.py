@@ -83,14 +83,17 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
         cmdline += "-device virtio-serial "
         cmdline += "-chardev spicevmc,id=vdagent,name=vdagent "
         cmdline += "-device virtserialport,chardev=vdagent,name=com.redhat.spice.0 "
-        vga = "qxl"
-        eprint("WARNING: Overridden VGA with qxl since UEFI (and therefore the spice server) is enabled!")
 
     if ":" in vga:
         # Enable VGA passthrough
         cmdline += "-device vfio-pci,host=" + vga + ",addr=09.0,multifunction=on "
+        cmdline += "-device vfio-pci,host=03:00.1,addr=09.1 "
+        cmdline += "-vga none -nographic "
     else:
         # Set the VGA emulation
+        if uefi:
+            vga = "qxl"
+            eprint("WARNING: Overridden VGA with qxl since UEFI (and therefore the spice server) is enabled!")
         cmdline += "-vga " + (str(vga) + " -usb -usbdevice tablet" if vga else "none") + " "
 
     # Set the sound device
