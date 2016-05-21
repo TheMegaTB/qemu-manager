@@ -8,7 +8,6 @@ import sys
 import json
 import psutil
 
-
 OVMF_CODE_PATH = path.abspath("./OVMF/OVMF_CODE-pure-efi.fd")
 HUGEPAGESIZE = 2048
 
@@ -41,7 +40,6 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
              mem=2048, hugepages=False, cores=4, cpu="host", cpu_args=None,
              vga=None, sound=None,
              hdd=None, ide=None, scsi=None):
-
     if vm_path is None:
         exit("ERROR: No VM path passed")
 
@@ -52,7 +50,9 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
     if scsi is None:
         scsi = []
 
-    additional_options = "-serial none -parallel none -no-user-config -nodefaults -nodefconfig -net nic,model=virtio -net vde"
+    additional_options = "-serial none -parallel none -no-user-config -nodefaults -nodefconfig -net nic,model=virtio " \
+                         "-net vde " \
+                         "-machine pc,accel=kvm,kernel_irqchip=on,mem-merge=off "
     cmdline = "qemu-system-x86_64 "
     drive_id = 0
 
@@ -111,8 +111,8 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
     # IDE
     for dvd_image in ide:
         dvd_image = dvd_image.replace("GLOBAL/", path.abspath("./cd_images") + "/", 1)
-        cmdline += add_drive(dvd_image, drive_id) + "-device ide-cd,bus=ide." + str(drive_id) + ",drive=drive_"\
-                                                                                                + str(drive_id) + " "
+        cmdline += add_drive(dvd_image, drive_id) + "-device ide-cd,bus=ide." + str(drive_id) + ",drive=drive_" \
+                   + str(drive_id) + " "
         drive_id += 1
 
     # SCSI
@@ -136,6 +136,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
     f.close()
     chmod('/tmp/qemu_cmdline.sh', 0o544)
 
+
 # -rtc base=localtime \
 # -net user,smb=/home/themegatb/ \
 # -net nic,model=virtio
@@ -154,4 +155,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
