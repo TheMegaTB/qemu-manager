@@ -3,8 +3,10 @@
 # TODO: Argument parsing and quiet flag for qemu
 echo $EUID
 if [ "$EUID" -ne 0 ]; then
-    gksudo --preserve-env --message "QEMU Manager wants to start a VM and requires root permission to do so." "$0 $@"
-    if [ $? -ne 0 ]; then
+    if [ -z "$DISPLAY" ]; then
+        gksudo --preserve-env --message "QEMU Manager wants to start a VM and requires root permission to do so." "$0 $@"
+    fi
+    if [ $? -ne 0 ] || [ -z "$DISPLAY" ]; then
         echo -e " \e[91m*\e[39m Please run as root"
     fi
     exit
