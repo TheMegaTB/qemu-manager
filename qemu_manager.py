@@ -38,7 +38,7 @@ def parse_vm(name):
 
 
 def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
-             mem=2048, cores=4, cpu="host", cpu_args=None,
+             mem=2048, hugepages=False, cores=4, cpu="host", cpu_args=None,
              vga=None, sound=None,
              hdd=None, ide=None, scsi=None):
 
@@ -63,7 +63,8 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
 
     # Set the RAM allocation
     cmdline += "-m " + str(mem) + " "
-    cmdline += "-mem-path /dev/hugepages -mem-prealloc "
+    if hugepages:
+        cmdline += "-mem-path /dev/hugepages -mem-prealloc "
 
     # Set the CPU options
     cmdline += "-cpu " + (cpu + "," + cpu_args if cpu_args else cpu) + " "
