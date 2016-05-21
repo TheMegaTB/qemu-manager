@@ -85,8 +85,12 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
         vga = "qxl"
         eprint("WARNING: Overridden VGA with qxl since UEFI (and therefore the spice server) is enabled!")
 
-    # Set the VGA emulation
-    cmdline += "-vga " + (str(vga) + " -usb -usbdevice tablet" if vga else "none") + " "
+    if ":" in vga:
+        # Enable VGA passthrough
+        cmdline += "-device vfio-pci,host=" + vga + ",addr=09.0,multifunction=on "
+    else:
+        # Set the VGA emulation
+        cmdline += "-vga " + (str(vga) + " -usb -usbdevice tablet" if vga else "none") + " "
 
     # Set the sound device
     if sound:
