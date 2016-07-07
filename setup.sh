@@ -1,1 +1,0 @@
-sudo modprobe vfio-pci

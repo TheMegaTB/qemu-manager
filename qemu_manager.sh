@@ -10,15 +10,19 @@ if [ "$EUID" -ne 0 ]; then
     exit
 fi
 
-function help() {
-    echo -e "$(basename "$0") [-h] [-s] [-q(q)] VM -- manager for various tasks regarding QEMU based virtual machines.\n
+function print_help() {
+    echo -e "$(basename "$0") [-h] [-s] [-q(q)] [-t] VM -- manager for various tasks regarding QEMU based virtual machines.\n
 \n
 where:\n
     --help       [-h]   show this help text\n
     --spicey     [-s]   launches the spicey client automagically\n
     --quiet      [-q]   mutes the QEMU output including errors\n
-    --very-quiet [-qq]  mutes everything"
+    --very-quiet [-qq]  mutes everything\n
+    --test       [-t]   generate cmdline and display it. May be the last parameter passed"
 }
+
+cols=$(tput cols)
+hugepagesize=$(sed -n 's/Hugepagesize://p' /proc/meminfo | awk '{print $1}')
 
 while [[ $# > 1 ]]; do
     key="$1"
@@ -36,7 +40,12 @@ while [[ $# > 1 ]]; do
             #shift # past argument
             ;;
         -h|--help|-help)
-            help
+            print_help
+            exit 0
+            ;;
+        -t|--test)
+            ./qemu_manager.py ${hugepagesize} $2
+            cat /tmp/qemu_cmdline.sh | less
             exit 0
             ;;
         *)
@@ -50,9 +59,6 @@ if [ -z "$1" ]; then
     echo -e " \e[91m*\e[39m Please provide a VM name"
     exit
 fi
-
-cols=$(tput cols)
-hugepagesize=$(sed -n 's/Hugepagesize://p' /proc/meminfo | awk '{print $1}')
 
 function move_before_end_of_line {
     tput el

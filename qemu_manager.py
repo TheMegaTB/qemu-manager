@@ -8,8 +8,7 @@ import sys
 import json
 import psutil
 
-OVMF_CODE_PATH = path.abspath("./OVMF/OVMF_CODE-pure-efi.fd")
-HUGEPAGESIZE = 2048
+HUGEPAGESIZE = 2  # MB (2 * 2048kB)
 
 
 def called_by_qmsh():
@@ -35,11 +34,11 @@ def parse_vm(name):
     vm_config["vm_path"] = vm_path
     return vm_config
 
-
+modprobed = False
 def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
              mem=2048, hugepages=False, cores=4, cpu="host", cpu_args=None,
-             vga=None, sound=None,
-             hdd=None, ide=None, scsi=None):
+             vga=None, sound=None, usb=None,
+             hdd=None, ide=None, scsi=None, pci=None):
     if vm_path is None:
         exit("ERROR: No VM path passed")
 
@@ -49,12 +48,28 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
         ide = []
     if scsi is None:
         scsi = []
+    if pci is None:
+        pci = []
+    if usb is None:
+        usb = []
+
+    spice = False
 
     additional_options = "-serial none -parallel none -no-user-config -nodefaults -nodefconfig -net nic,model=virtio " \
                          "-net vde " \
                          "-machine pc,accel=kvm,kernel_irqchip=on,mem-merge=off "
     cmdline = "qemu-system-x86_64 "
     drive_id = 0
+
+    f = open('/tmp/qemu_cmdline.sh', 'w')
+    print("#!/bin/bash", file=f)
+
+    def unbind_device(dev):
+        global modprobed
+        if not modprobed:
+            print("modprobe vfio-pci", file=f)
+            modprobed = True
+        print(path.abspath("./unbind_device.sh") + " 0000:" + dev, file=f)
 
     # Enable KVM
     cmdline += "-enable-kvm " if kvm else ""
@@ -75,30 +90,41 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
     # Enable UEFI
     if uefi:
         uefi = path.join(vm_path, uefi)
-        cmdline += "-drive if=pflash,format=raw,readonly,file=" + OVMF_CODE_PATH + " "
-        cmdline += "-drive if=pflash,format=raw,file=" + uefi + " "
-        # cmdline += "-debugcon file:debug.log -global isa-debugcon.iobase=0x402 "
-
-        cmdline += "-spice port=5930,disable-ticketing "
-        cmdline += "-device virtio-serial "
-        cmdline += "-chardev spicevmc,id=vdagent,name=vdagent "
-        cmdline += "-device virtserialport,chardev=vdagent,name=com.redhat.spice.0 "
+        cmdline += "-drive if=pflash,format=raw,readonly,file=" + uefi + " "
 
     if ":" in vga:
-        # Enable VGA passthrough
-        cmdline += "-device vfio-pci,host=" + vga + ",addr=09.0,multifunction=on "
-        cmdline += "-device vfio-pci,host=03:00.1,addr=09.1 "
+        # Enable VGA passthrough TODO: VGA Passthrough w/ SeaBIOS
+        unbind_device(vga)
+        cmdline += "-device vfio-pci,host=" + vga + " "
         cmdline += "-vga none -nographic "
     else:
         # Set the VGA emulation
         if uefi:
             vga = "qxl"
             eprint("WARNING: Overridden VGA with qxl since UEFI (and therefore the spice server) is enabled!")
+        if vga == "spice":
+            vga = "qxl"
+            spice = True
         cmdline += "-vga " + (str(vga) + " -usb -usbdevice tablet" if vga else "none") + " "
+
+    if spice:
+        cmdline += "-spice port=5930,disable-ticketing "
+        cmdline += "-device virtio-serial "
+        cmdline += "-chardev spicevmc,id=vdagent,name=vdagent "
+        cmdline += "-device virtserialport,chardev=vdagent,name=com.redhat.spice.0 "
 
     # Set the sound device
     if sound:
         cmdline += "-soundhw " + str(sound) + " "
+
+    # Add USB devices
+    for usb_device in usb:
+        cmdline += "-usbdevice host:" + usb_device + " "
+
+    # Add PCI devices TODO: Rebind those devices to the drivers they had before
+    for pci_device in pci:
+        cmdline += "-device vfio-pci,host=" + pci_device + " "
+        unbind_device(pci_device)
 
     # ------- Drives -------
 
@@ -110,28 +136,32 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
 
     # IDE
     for dvd_image in ide:
-        dvd_image = dvd_image.replace("GLOBAL/", path.abspath("./cd_images") + "/", 1)
+        if "GLOBAL/" in dvd_image:
+            dvd_image = dvd_image.replace("GLOBAL/", path.abspath("./cd_images") + "/", 1)
+        else:
+            dvd_image = path.join(vm_path, dvd_image)
         cmdline += add_drive(dvd_image, drive_id) + "-device ide-cd,bus=ide." + str(drive_id) + ",drive=drive_" \
-                   + str(drive_id) + " "
+            + str(drive_id) + " "
         drive_id += 1
 
     # SCSI
     for dvd_image in scsi:
-        dvd_image = dvd_image.replace("GLOBAL/", path.abspath("./cd_images") + "/", 1)
+        if "GLOBAL/" in dvd_image:
+            dvd_image = dvd_image.replace("GLOBAL/", path.abspath("./cd_images") + "/", 1)
+        else:
+            dvd_image = path.join(vm_path, dvd_image)
         cmdline += add_drive(dvd_image, drive_id) + "-device scsi-cd,drive=drive_" + str(drive_id) + " "
         drive_id += 1
 
-    # HDD
+    # HDD TODO: w/o Virtio
     for (hdd_file, options) in hdd:
         hdd_file = path.join(vm_path, hdd_file)
         cmdline += add_drive(hdd_file, drive_id, options) + "-device scsi-hd,drive=drive_" + str(drive_id) + " "
         drive_id += 1
 
-    # TODO: Set up VFIO binding
-    f = open('/tmp/qemu_cmdline.sh', 'w')
-    print("#!/bin/bash", file=f)
     print("echo 1 > /sys/module/kvm/parameters/ignore_msrs", file=f)
-    print("echo " + str(math.ceil(mem / HUGEPAGESIZE / 50) * 50) + " > /proc/sys/vm/nr_hugepages", file=f)
+    if hugepages:
+        print("echo " + str(math.ceil(mem / HUGEPAGESIZE / 50) * 50) + " > /proc/sys/vm/nr_hugepages", file=f)
     print(cmdline + additional_options, file=f)
     f.close()
     chmod('/tmp/qemu_cmdline.sh', 0o544)
@@ -144,7 +174,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
 
 def main():
     if not called_by_qmsh():
-        eprint("This script shouldn't be called directly.")
+        eprint("This script may not be called directly.")
         exit(1)
     global HUGEPAGESIZE
     HUGEPAGESIZE = int(sys.argv[1]) / 1024  # Convert kB -> MB
