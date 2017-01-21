@@ -1,4 +1,4 @@
-#!/usr/bin/python3.5
+#!/usr/bin/python
 from __future__ import print_function
 from pprint import pprint
 from subprocess import check_output
