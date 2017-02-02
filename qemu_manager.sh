@@ -110,6 +110,7 @@ end $?
 
 if [ -z ${NO_IP_FORWARDING} ]; then
     begin "Setting up IP forwarding"
+    modprobe tun
     vde_switch -tap tap0 -mod 660 -group kvm >/dev/null 2>&1 &
     TAP_PID=$!
     while ! ip a | grep -F "tap0" > /dev/null; do

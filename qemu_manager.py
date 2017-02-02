@@ -1,4 +1,4 @@
-#!/usr/bin/python3.5
+#!/usr/bin/python
 from __future__ import print_function
 from pprint import pprint
 from subprocess import check_output
@@ -34,11 +34,15 @@ def parse_vm(name):
     vm_config["vm_path"] = vm_path
     return vm_config
 
+
 modprobed = False
+
+
 def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
              mem=2048, hugepages=False, cores=4, cpu="host", cpu_args=None,
              vga=None, sound=None, usb=None,
-             hdd=None, ide=None, scsi=None, pci=None, opts=""):
+             hdd=None, ide_hdd=False, ide=None, scsi=None, pci=None,
+             osx=False, opts=""):
     if vm_path is None:
         exit("ERROR: No VM path passed")
 
@@ -55,9 +59,10 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
 
     spice = False
 
-    additional_options = "-serial none -parallel none -no-user-config -nodefaults -nodefconfig -net nic,model=virtio " \
+    no_defaults = "-serial none -parallel none -no-user-config -nodefaults -nodefconfig "
+    additional_options = "-net nic,model=virtio " \
                          "-net vde " \
-                         "-machine pc,accel=kvm,kernel_irqchip=on,mem-merge=off "
+                         "-machine pc-q35-2.4,accel=kvm,kernel_irqchip=on,mem-merge=off "
     cmdline = "qemu-system-x86_64 "
     drive_id = 0
 
@@ -92,7 +97,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
         uefi = path.join(vm_path, uefi)
         cmdline += "-drive if=pflash,format=raw,readonly,file=" + uefi + " "
 
-    if ":" in vga:
+    if vga and ":" in vga:
         # Enable VGA passthrough TODO: VGA Passthrough w/ SeaBIOS
         unbind_device(vga)
         cmdline += "-device vfio-pci,host=" + vga + " "
@@ -105,7 +110,10 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
         if vga == "spice":
             vga = "qxl"
             spice = True
-        cmdline += "-vga " + (str(vga) + " -usb -usbdevice tablet" if vga else "none") + " "
+        if not osx:
+            cmdline += "-vga " + (str(vga) if vga else "none") + " "
+        if not osx and vga:
+            cmdline += " -usb -usbdevice tablet "
 
     if spice:
         cmdline += "-spice port=5931,disable-ticketing "
@@ -129,7 +137,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
     # ------- Drives -------
 
     def add_drive(file, d_id, opt=""):
-        return "-drive file=" + file + ",id=drive_" + str(d_id) + ",if=none" + ("," + opt + " " if opt != "" else " ")
+        return "-drive file=\"" + file + "\",id=drive_" + str(d_id) + ",if=none" + ("," + opt + " " if opt != "" else " ")
 
     if virtio:
         cmdline += "-device virtio-scsi-pci,id=scsi "
@@ -141,7 +149,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
         else:
             dvd_image = path.join(vm_path, dvd_image)
         cmdline += add_drive(dvd_image, drive_id) + "-device ide-cd,bus=ide." + str(drive_id) + ",drive=drive_" \
-            + str(drive_id) + " "
+                   + str(drive_id) + " "
         drive_id += 1
 
     # SCSI
@@ -155,11 +163,27 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
 
     # HDD TODO: w/o Virtio
     for (hdd_file, options) in hdd:
-        hdd_file = path.join(vm_path, hdd_file)
-        cmdline += add_drive(hdd_file, drive_id, options) + "-device scsi-hd,drive=drive_" + str(drive_id) + " "
+        if not path.isabs(hdd_file):
+            hdd_file = path.join(vm_path, hdd_file)
+        if ide_hdd:
+            cmdline += add_drive(hdd_file, drive_id, options) + "-device ide-drive,bus=ide." + str(drive_id) + \
+                       ",drive=drive_" + str(drive_id) + " "
+        else:
+            cmdline += add_drive(hdd_file, drive_id, options) + "-device scsi-hd,drive=drive_" + str(drive_id) + " "
+
         drive_id += 1
 
     cmdline += opts + " "
+    # OSX specific functions
+    if osx:
+        with open('osk-string', 'r') as myfile:
+            osk = myfile.read().replace('\n', '')
+        cmdline += "-device isa-applesmc,osk='" + osk + \
+                   "' -kernel " + path.abspath("enoch_rev2839_boot") + " -smbios type=2 -device usb-kbd -usb -device usb-mouse -monitor stdio "
+    else:
+        cmdline += no_defaults
+
+    cmdline += additional_options
 
     print("echo 1 > /sys/module/kvm/parameters/ignore_msrs", file=f)
     if hugepages:
