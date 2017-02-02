@@ -38,7 +38,7 @@ modprobed = False
 def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
              mem=2048, hugepages=False, cores=4, cpu="host", cpu_args=None,
              vga=None, sound=None, usb=None,
-             hdd=None, ide=None, scsi=None, pci=None):
+             hdd=None, ide=None, scsi=None, pci=None, opts=""):
     if vm_path is None:
         exit("ERROR: No VM path passed")
 
@@ -99,16 +99,16 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
         cmdline += "-vga none -nographic "
     else:
         # Set the VGA emulation
-        if uefi:
-            vga = "qxl"
-            eprint("WARNING: Overridden VGA with qxl since UEFI (and therefore the spice server) is enabled!")
+        # if uefi:
+        #     vga = "qxl"
+            # eprint("WARNING: Overridden VGA with qxl since UEFI (and therefore the spice server) is enabled!")
         if vga == "spice":
             vga = "qxl"
             spice = True
         cmdline += "-vga " + (str(vga) + " -usb -usbdevice tablet" if vga else "none") + " "
 
     if spice:
-        cmdline += "-spice port=5930,disable-ticketing "
+        cmdline += "-spice port=5931,disable-ticketing "
         cmdline += "-device virtio-serial "
         cmdline += "-chardev spicevmc,id=vdagent,name=vdagent "
         cmdline += "-device virtserialport,chardev=vdagent,name=com.redhat.spice.0 "
@@ -158,6 +158,8 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
         hdd_file = path.join(vm_path, hdd_file)
         cmdline += add_drive(hdd_file, drive_id, options) + "-device scsi-hd,drive=drive_" + str(drive_id) + " "
         drive_id += 1
+
+    cmdline += opts + " "
 
     print("echo 1 > /sys/module/kvm/parameters/ignore_msrs", file=f)
     if hugepages:
