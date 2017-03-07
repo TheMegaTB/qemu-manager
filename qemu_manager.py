@@ -104,7 +104,11 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
         if vga and ":" in vga:
             # Enable VGA passthrough TODO: VGA Passthrough w/ SeaBIOS
             # unbind_device(vga)
-            cmdline += "-device vfio-pci,host=" + vga + " "
+            if uefi:
+                cmdline += "-device vfio-pci,host=" + vga + " "
+            else:
+                cmdline += "-device ioh3420,bus=pcie.0,addr=1c.0,multifunction=on,port=1,chassis=1,id=root.1 "
+                cmdline += "-device vfio-pci,host=" + vga + ",bus=root.1,addr=00.0,multifunction=on,x-vga=on "
             cmdline += "-vga none -nographic "
         elif vga:
             if vga == "spice":

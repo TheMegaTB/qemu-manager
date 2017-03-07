@@ -43,6 +43,7 @@ while [[ $# > 1 ]]; do
             ;;
         -l|--sdl)
             SDL=1
+            ;;
         -i|--no-ip)
             NO_IP_FORWARDING=1
             ;;
