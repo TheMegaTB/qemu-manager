@@ -19,7 +19,8 @@ where:\n
     --sdl        [-l]   override vga and PCI passthrough\n
     --quiet      [-q]   mutes the QEMU output including errors\n
     --very-quiet [-qq]  mutes everything\n
-    --test       [-t]   generate cmdline and display it. May be the last parameter passed"
+    --test       [-t]   generate cmdline and display it. May be the last parameter passed\n
+    --no-ip      [-i]   dont create network interface"
 }
 
 cols=$(tput cols)
@@ -42,6 +43,8 @@ while [[ $# > 1 ]]; do
             ;;
         -l|--sdl)
             SDL=1
+        -i|--no-ip)
+            NO_IP_FORWARDING=1
             ;;
         -h|--help|-help)
             print_help
@@ -109,21 +112,24 @@ try export QEMU_PA_SAMPLES=128
 try export QEMU_AUDIO_DRV="pa"
 end $?
 
-begin "Setting up IP forwarding"
-vde_switch -tap tap0 -mod 660 -group kvm >/dev/null 2>&1 &
-TAP_PID=$!
-while ! ip a | grep -F "tap0" > /dev/null; do
-    sleep 0.5
-done
-try ip addr add 10.0.2.1/24 dev tap0
-try ip link set dev tap0 up
-try sysctl -w net.ipv4.ip_forward=1 > /dev/null
-try iptables -t nat -A POSTROUTING -s 10.0.2.0/24 -j MASQUERADE
-end $?
+if [ -z ${NO_IP_FORWARDING} ]; then
+    begin "Setting up IP forwarding"
+    modprobe tun
+    vde_switch -tap tap0 -mod 660 -group kvm >/dev/null 2>&1 &
+    TAP_PID=$!
+    while ! ip a | grep -F "tap0" > /dev/null; do
+        sleep 0.5
+    done
+    try ip addr add 10.0.2.1/24 dev tap0
+    try ip link set dev tap0 up
+    try sysctl -w net.ipv4.ip_forward=1 > /dev/null
+    try iptables -t nat -A POSTROUTING -s 10.0.2.0/24 -j MASQUERADE
+    end $?
+fi
 
 if [ ! -z ${SPICE} ]; then
     begin "Launching spice"
-    try sh -c "(sleep 0.5 && i3-msg 'workspace '8: '; exec spicy --spice-preferred-compression=off -f -h 127.0.0.1 -p 5930')" > /dev/null &
+    try sh -c "(sleep 0.5 && i3-msg 'workspace '8: '; exec spicy --spice-preferred-compression=off -f -h 127.0.0.1 -p 5931')" > /dev/null &
     end $?
 fi
 

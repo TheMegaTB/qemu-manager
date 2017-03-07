@@ -42,7 +42,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
              mem=2048, hugepages=False, cores=4, cpu="host", cpu_args=None,
              vga=None, sdl_override=False, sound=None, usb=None,
              hdd=None, ide_hdd=False, ide=None, scsi=None, pci=None,
-             osx=False):
+             osx=False, opts=""):
     if vm_path is None:
         exit("ERROR: No VM path passed")
 
@@ -117,7 +117,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
             cmdline += "-vga none "
 
         if spice:
-            cmdline += "-spice port=5930,disable-ticketing "
+            cmdline += "-spice port=5931,disable-ticketing "
             cmdline += "-device virtio-serial "
             cmdline += "-chardev spicevmc,id=vdagent,name=vdagent "
             cmdline += "-device virtserialport,chardev=vdagent,name=com.redhat.spice.0 "
@@ -187,6 +187,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
 
         drive_id += 1
 
+    cmdline += opts + " "
     # OSX specific functions
     if osx:
         with open('osk-string', 'r') as myfile:
