@@ -1,4 +1,4 @@
-#!/usr/bin/python3.5
+#!/usr/bin/env python3
 from __future__ import print_function
 from pprint import pprint
 from subprocess import check_output
@@ -40,7 +40,7 @@ modprobed = False
 
 def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
              mem=2048, hugepages=False, cores=4, cpu="host", cpu_args=None,
-             vga=None, sound=None, usb=None,
+             vga=None, sdl_override=False, sound=None, usb=None,
              hdd=None, ide_hdd=False, ide=None, scsi=None, pci=None,
              osx=False):
     if vm_path is None:
@@ -63,6 +63,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
     additional_options = "-net nic,model=virtio " \
                          "-net vde " \
                          "-machine pc-q35-2.4,accel=kvm,kernel_irqchip=on,mem-merge=off "
+
     cmdline = "qemu-system-x86_64 "
     drive_id = 0
 
@@ -74,7 +75,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
         if not modprobed:
             print("modprobe vfio-pci", file=f)
             modprobed = True
-        print(path.abspath("./unbind_device.sh") + " 0000:" + dev, file=f)
+        # print(path.abspath("./unbind_device.sh") + " 0000:" + dev, file=f)
 
     # Enable KVM
     cmdline += "-enable-kvm " if kvm else ""
@@ -97,29 +98,39 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
         uefi = path.join(vm_path, uefi)
         cmdline += "-drive if=pflash,format=raw,readonly,file=" + uefi + " "
 
-    if vga and ":" in vga:
-        # Enable VGA passthrough TODO: VGA Passthrough w/ SeaBIOS
-        unbind_device(vga)
-        cmdline += "-device vfio-pci,host=" + vga + " "
-        cmdline += "-vga none -nographic "
+    if sdl_override:
+        cmdline += "-vga std "
     else:
-        # Set the VGA emulation
-        if uefi:
-            vga = "qxl"
-            eprint("WARNING: Overridden VGA with qxl since UEFI (and therefore the spice server) is enabled!")
-        if vga == "spice":
-            vga = "qxl"
-            spice = True
-        if not osx:
-            cmdline += "-vga " + (str(vga) if vga else "none") + " "
-        if not osx and vga:
-            cmdline += " -usb -usbdevice tablet "
+        if vga and ":" in vga:
+            # Enable VGA passthrough TODO: VGA Passthrough w/ SeaBIOS
+            # unbind_device(vga)
+            cmdline += "-device vfio-pci,host=" + vga + " "
+            cmdline += "-vga none -nographic "
+        elif vga:
+            if vga == "spice":
+                vga = "qxl"
+                spice = True
+            if not osx:
+                cmdline += " -usb -usbdevice tablet "
+            cmdline += "-vga " + str(vga) + " "
+        else:
+            cmdline += "-vga none "
 
-    if spice:
-        cmdline += "-spice port=5930,disable-ticketing "
-        cmdline += "-device virtio-serial "
-        cmdline += "-chardev spicevmc,id=vdagent,name=vdagent "
-        cmdline += "-device virtserialport,chardev=vdagent,name=com.redhat.spice.0 "
+        if spice:
+            cmdline += "-spice port=5930,disable-ticketing "
+            cmdline += "-device virtio-serial "
+            cmdline += "-chardev spicevmc,id=vdagent,name=vdagent "
+            cmdline += "-device virtserialport,chardev=vdagent,name=com.redhat.spice.0 "
+            cmdline += "-device ich9-usb-ehci1,id=usb "
+            cmdline += "-device ich9-usb-uhci1,masterbus=usb.0,firstport=0,multifunction=on "
+            cmdline += "-device ich9-usb-uhci2,masterbus=usb.0,firstport=2 "
+            cmdline += "-device ich9-usb-uhci3,masterbus=usb.0,firstport=4 "
+            cmdline += "-chardev spicevmc,name=usbredir,id=usbredirchardev1 "
+            cmdline += "-device usb-redir,chardev=usbredirchardev1,id=usbredirdev1 "
+            cmdline += "-chardev spicevmc,name=usbredir,id=usbredirchardev2 "
+            cmdline += "-device usb-redir,chardev=usbredirchardev2,id=usbredirdev2 "
+            cmdline += "-chardev spicevmc,name=usbredir,id=usbredirchardev3 "
+            cmdline += "-device usb-redir,chardev=usbredirchardev3,id=usbredirdev3 "
 
     # Set the sound device
     if sound:
@@ -129,7 +140,7 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
     for usb_device in usb:
         cmdline += "-usbdevice host:" + usb_device + " "
 
-    # Add PCI devices TODO: Rebind those devices to the drivers they had before
+    # Add PCI devices TODO: Rebind those devices to the drivers they had before after shutdown
     for pci_device in pci:
         cmdline += "-device vfio-pci,host=" + pci_device + " "
         unbind_device(pci_device)
@@ -164,7 +175,10 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
     # HDD TODO: w/o Virtio
     for (hdd_file, options) in hdd:
         if not path.isabs(hdd_file):
-            hdd_file = path.join(vm_path, hdd_file)
+            if "GLOBAL/" in hdd_file:
+                hdd_file = hdd_file.replace("GLOBAL/", path.abspath("./cd_images") + "/", 1)
+            else:
+                hdd_file = path.join(vm_path, hdd_file)
         if ide_hdd:
             cmdline += add_drive(hdd_file, drive_id, options) + "-device ide-drive,bus=ide." + str(drive_id) + \
                        ",drive=drive_" + str(drive_id) + " "
@@ -177,17 +191,17 @@ def start_vm(vm_path=None, kvm=True, uefi=None, virtio=True,
     if osx:
         with open('osk-string', 'r') as myfile:
             osk = myfile.read().replace('\n', '')
-        cmdline += "-device isa-applesmc,osk='" + osk + \
-                   "' -kernel " + path.abspath("enoch_rev2839_boot") + " -smbios type=2 -device usb-kbd -usb -device usb-mouse -monitor stdio "
+        cmdline += "-machine pc-q35-2.4 -device isa-applesmc,osk='" + osk + \
+                   "' -kernel " + path.abspath("enoch_rev2839_boot") + " -smbios type=2 -device usb-kbd " + \
+                   "-usb -device usb-mouse -monitor stdio -net nic -net vde "
     else:
         cmdline += no_defaults
-
-    cmdline += additional_options
+        cmdline += additional_options
 
     print("echo 1 > /sys/module/kvm/parameters/ignore_msrs", file=f)
     if hugepages:
         print("echo " + str(math.ceil(mem / HUGEPAGESIZE / 50) * 50) + " > /proc/sys/vm/nr_hugepages", file=f)
-    print(cmdline + additional_options, file=f)
+    print(cmdline, file=f)
     f.close()
     chmod('/tmp/qemu_cmdline.sh', 0o544)
 
@@ -204,7 +218,10 @@ def main():
     global HUGEPAGESIZE
     HUGEPAGESIZE = int(sys.argv[1]) / 1024  # Convert kB -> MB
     vm_config = parse_vm(sys.argv[2])
-    vm_config.pop("name", None)  # eprint("Loaded " + vm_config.pop("name"))
+    vm_config.pop("name", None)
+    if len(sys.argv) > 3 and sys.argv[3] == "1":
+        eprint("SDL override activated! Replacing every graphics device with SDL output.")
+        vm_config["sdl_override"] = True
     start_vm(**vm_config)
 
 

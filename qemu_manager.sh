@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
 if [ "$EUID" -ne 0 ]; then
-    if [ -z "$DISPLAY" ]; then
+    if [ ! -z "$DISPLAY" ] && hash gksudo 2>/dev/null; then
         gksudo --preserve-env --message "QEMU Manager wants to start a VM and requires root permission to do so." "$0 $@"
     fi
-    if [ $? -ne 0 ] || [ -z "$DISPLAY" ]; then
+    if [ $? -ne 0 ] || [ -z "$DISPLAY" ] || ! hash gksudo 2>/dev/null; then
         echo -e " \e[91m*\e[39m Please run as root"
     fi
     exit
@@ -16,6 +16,7 @@ function print_help() {
 where:\n
     --help       [-h]   show this help text\n
     --spicey     [-s]   launches the spicey client automagically\n
+    --sdl        [-l]   override vga and PCI passthrough\n
     --quiet      [-q]   mutes the QEMU output including errors\n
     --very-quiet [-qq]  mutes everything\n
     --test       [-t]   generate cmdline and display it. May be the last parameter passed"
@@ -38,6 +39,9 @@ while [[ $# > 1 ]]; do
         -s|--spicey)
             SPICE=1
             #shift # past argument
+            ;;
+        -l|--sdl)
+            SDL=1
             ;;
         -h|--help|-help)
             print_help
@@ -94,6 +98,7 @@ function try {
     if [ ${status} -ne 0 ]; then
         # echo "error with $1" >&2
         end ${status}
+        killall vde_switch >/dev/null 2>&1
         exit ${status}
     fi
     return ${status}
@@ -118,18 +123,17 @@ end $?
 
 if [ ! -z ${SPICE} ]; then
     begin "Launching spice"
-    try sh -c "(sleep 0.5 && i3-msg 'workspace '8: '; exec spicy -f -h 127.0.0.1 -p 5930')" > /dev/null &
+    try sh -c "(sleep 0.5 && i3-msg 'workspace '8: '; exec spicy --spice-preferred-compression=off -f -h 127.0.0.1 -p 5930')" > /dev/null &
     end $?
 fi
 
 begin "Starting VM"
-try ./qemu_manager.py ${hugepagesize} $1
+try ./qemu_manager.py ${hugepagesize} $1 ${SDL}
 
 echo -e "\e[90m"
 try /tmp/qemu_cmdline.sh
 end $?
 
 begin "Removing IP forwarding device"
-#ip link delete tap0
 kill ${TAP_PID}
 end $?
